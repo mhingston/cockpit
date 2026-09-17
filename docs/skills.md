@@ -1,6 +1,9 @@
 # Skill Discovery with Skillet
 
-Skillet is the approved discovery boundary for reusable agent skills.
+Skillet is the approved discovery boundary for reusable agent skills. Configure
+an approved Skillet MCP server before treating the routing policy as
+executable. The source and deployment may vary; the current setup's project is
+documented in the [prerequisites](prerequisites.md).
 
 ## Routing
 

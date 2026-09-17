@@ -6,14 +6,16 @@ tools, skill discovery, and lifecycle hooks that help an agent work safely and
 repeatably across unrelated repositories.
 
 The template is deliberately organisation-neutral. It contains no customer,
-employer, product, repository, account, transcript, credential, or machine
-state.
+employer, product, repository, account state, transcript, credential, or
+machine state.
 
 ## Contents
 
 - [`AGENTS.md`](AGENTS.md): compact policy loaded by repository-aware agents.
 - [`WORKFLOW_USAGE.md`](WORKFLOW_USAGE.md): light, medium, and heavy execution
   routes.
+- [`docs/prerequisites.md`](docs/prerequisites.md): local prerequisites, MCP
+  integrations, health checks, and project links.
 - [`docs/knowledge-base.md`](docs/knowledge-base.md): using OpenKnowledge as a
   governed durable knowledge base.
 - [`docs/repository-intelligence.md`](docs/repository-intelligence.md): the

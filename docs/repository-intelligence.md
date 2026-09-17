@@ -1,5 +1,10 @@
 # Repository Intelligence
 
+Install and configure [Repowise](https://docs.repowise.dev/) for repository
+understanding and [Sentrux](https://sentrux.dev/docs/mcp/) for structural
+feedback only when the workflow needs those capabilities. The base hook tests
+do not require either integration.
+
 ## Complementary roles
 
 Repowise provides understand-before-acting intelligence: repository context,

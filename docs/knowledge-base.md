@@ -4,6 +4,10 @@ OpenKnowledge is the durable knowledge-base layer in this setup. It is useful
 for reusable working agreements, verified explanations, operational context,
 and decisions that should survive a single agent session.
 
+See the [official OpenKnowledge overview](https://openknowledge.ai/docs/get-started/overview)
+for the current desktop, CLI, MCP, and skills integration options. The
+repository policy does not assume one installation method.
+
 ## Boundaries
 
 - Treat the knowledge base as curated documentation, not live runtime,
