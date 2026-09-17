@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Capture marked agent learning-review reports and safely prune approved inbox files.
+"""Capture marked agent learning-review reports and safely archive or prune approved inbox files.
 
 The capture path is deliberately deterministic and does not interpret a report.
 The approval skill owns semantic review, human decisions, durable writes, and the
-decision to prepare a deletion manifest.
+decision to prepare an archive or deletion manifest.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import errno
 import hashlib
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -27,6 +29,9 @@ DEFAULT_OUTBOX = Path(
 )
 DEFAULT_INBOX = Path(
     os.environ.get("AGENT_HOOK_INBOX", str(Path.home() / ".agent-hooks/inbox"))
+)
+DEFAULT_ARCHIVE = Path(
+    os.environ.get("AGENT_HOOK_ARCHIVE", str(Path.home() / ".agent-hooks/archive"))
 )
 SESSION_ID_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -347,6 +352,14 @@ def direct_inbox_child(path: Path, inbox: Path) -> Path:
     return resolved
 
 
+def ensure_archive_root_safe(inbox: Path, archive_root: Path) -> None:
+    try:
+        archive_root.expanduser().resolve().relative_to(inbox.expanduser().resolve())
+    except ValueError:
+        return
+    raise ValueError("archive root must not be inside the inbox")
+
+
 def prepare_prune(args: argparse.Namespace) -> dict:
     inbox = Path(args.inbox).expanduser().resolve()
     if not args.path:
@@ -371,6 +384,205 @@ def prepare_prune(args: argparse.Namespace) -> dict:
         "confirm_digest": sha256_bytes(canonical_json(manifest)),
         "path_count": len(entries),
         "paths": entries,
+    }
+
+
+def archive_destination(source: Path, archive_root: Path, batch_id: str) -> Path:
+    if safe_name(batch_id) != batch_id:
+        raise ValueError("invalid archive batch id")
+    root = archive_root.expanduser().resolve()
+    destination = (root / batch_id / source.name).resolve()
+    expected_parent = (root / batch_id).resolve()
+    if destination.parent != expected_parent or destination.suffix != ".json":
+        raise ValueError(f"refusing archive path: {destination}")
+    return destination
+
+
+def prepare_archive(args: argparse.Namespace) -> dict:
+    inbox = Path(args.inbox).expanduser().resolve()
+    archive_root = Path(args.archive_root).expanduser().resolve()
+    ensure_archive_root_safe(inbox, archive_root)
+    if not args.path:
+        raise ValueError("at least one exact --path is required")
+    entries = []
+    seen = set()
+    for raw_path in args.path:
+        path = direct_inbox_child(Path(raw_path), inbox)
+        if path in seen:
+            raise ValueError(f"duplicate archive path: {path}")
+        seen.add(path)
+        if not path.exists() or not path.is_file():
+            raise ValueError(f"inbox path is not a file: {path}")
+        entries.append({"path": str(path), "sha256": sha256_file(path)})
+
+    output = Path(args.output).expanduser().resolve()
+    try:
+        output.relative_to(inbox)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("archive manifest must not be written inside the inbox")
+
+    created_at = iso_now()
+    batch_seed = {
+        "archive_root": str(archive_root),
+        "created_at": created_at,
+        "inbox": str(inbox),
+        "paths": sorted(entries, key=lambda entry: entry["path"]),
+    }
+    batch_id = (
+        dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        + "-"
+        + sha256_bytes(canonical_json(batch_seed))[:12]
+    )
+    for entry in entries:
+        source = Path(entry["path"])
+        entry["archive_path"] = str(archive_destination(source, archive_root, batch_id))
+
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "operation": "archive",
+        "inbox": str(inbox),
+        "archive_root": str(archive_root),
+        "batch_id": batch_id,
+        "created_at": created_at,
+        "paths": sorted(entries, key=lambda entry: entry["path"]),
+    }
+    atomic_write(output, (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode())
+    return {
+        "status": "prepared",
+        "operation": "archive",
+        "manifest": str(output),
+        "confirm_digest": sha256_bytes(canonical_json(manifest)),
+        "archive_root": str(archive_root),
+        "batch_id": batch_id,
+        "path_count": len(entries),
+        "paths": manifest["paths"],
+    }
+
+
+def move_exact(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        os.replace(source, destination)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+
+    temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    try:
+        with source.open("rb") as source_handle, temporary.open("xb") as destination_handle:
+            shutil.copyfileobj(source_handle, destination_handle)
+            destination_handle.flush()
+            os.fsync(destination_handle.fileno())
+        os.replace(temporary, destination)
+        source.unlink()
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def archive(args: argparse.Namespace) -> dict:
+    manifest_path = Path(args.manifest).expanduser().resolve()
+    manifest = load_json(manifest_path)
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema_version") != SCHEMA_VERSION
+        or manifest.get("operation") != "archive"
+    ):
+        raise ValueError("invalid archive manifest")
+    expected_digest = sha256_bytes(canonical_json(manifest))
+    if args.confirm != expected_digest:
+        raise ValueError("confirmation digest does not match the manifest")
+
+    inbox = Path(args.inbox).expanduser().resolve()
+    archive_root = Path(args.archive_root).expanduser().resolve()
+    ensure_archive_root_safe(inbox, archive_root)
+    if manifest.get("inbox") != str(inbox):
+        raise ValueError("manifest inbox does not match requested inbox")
+    if manifest.get("archive_root") != str(archive_root):
+        raise ValueError("manifest archive root does not match requested archive root")
+    batch_id = manifest.get("batch_id")
+    if not isinstance(batch_id, str) or not batch_id:
+        raise ValueError("archive manifest has no batch id")
+    raw_paths = manifest.get("paths")
+    if not isinstance(raw_paths, list) or not raw_paths:
+        raise ValueError("archive manifest has no paths")
+
+    checked = []
+    for entry in raw_paths:
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+            raise ValueError("invalid archive path entry")
+        path = direct_inbox_child(Path(entry["path"]), inbox)
+        expected_sha = entry.get("sha256")
+        if not isinstance(expected_sha, str):
+            raise ValueError(f"invalid archive hash: {path}")
+        destination = archive_destination(path, archive_root, batch_id)
+        if entry.get("archive_path") != str(destination):
+            raise ValueError(f"archive destination mismatch: {path}")
+
+        source_exists = path.is_file()
+        destination_exists = destination.exists()
+        if destination.is_symlink():
+            raise ValueError(f"archive destination must not be a symlink: {destination}")
+        if source_exists:
+            actual_sha = sha256_file(path)
+            if actual_sha != expected_sha:
+                raise ValueError(f"archive preflight hash mismatch: {path}")
+        elif not destination_exists:
+            raise ValueError(f"archive preflight failed: {path}")
+
+        if destination_exists:
+            if not destination.is_file() or sha256_file(destination) != expected_sha:
+                raise ValueError(f"archive destination conflict: {destination}")
+            action = "remove_source" if source_exists else "already_archived"
+        else:
+            action = "move"
+        checked.append((path, destination, expected_sha, action))
+
+    archived = []
+    already_archived = []
+    for path, destination, expected_sha, action in checked:
+        if action == "move":
+            move_exact(path, destination)
+            archived.append(str(destination))
+        elif action == "remove_source":
+            path.unlink()
+            archived.append(str(destination))
+        else:
+            already_archived.append(str(destination))
+
+    remaining_sources = []
+    invalid_destinations = []
+    for path, destination, expected_sha, _ in checked:
+        if path.exists():
+            remaining_sources.append(str(path))
+        if not destination.is_file() or sha256_file(destination) != expected_sha:
+            invalid_destinations.append(str(destination))
+    if remaining_sources or invalid_destinations:
+        raise RuntimeError(
+            "archive verification failed: "
+            + json.dumps(
+                {
+                    "remaining_sources": remaining_sources,
+                    "invalid_destinations": invalid_destinations,
+                },
+                sort_keys=True,
+            )
+        )
+    return {
+        "status": "archived",
+        "operation": "archive",
+        "manifest": str(manifest_path),
+        "confirm_digest": expected_digest,
+        "archive_root": str(archive_root),
+        "batch_id": batch_id,
+        "archived": archived,
+        "already_archived": already_archived,
+        "remaining_sources": remaining_sources,
     }
 
 
@@ -444,10 +656,28 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--output", required=True)
     prepare_parser.add_argument("--path", action="append", required=True)
 
+    archive_prepare_parser = sub.add_parser(
+        "prepare-archive",
+        help="prepare an exact-path, hash-checked reversible archive manifest",
+    )
+    archive_prepare_parser.add_argument("--inbox", default=str(DEFAULT_INBOX))
+    archive_prepare_parser.add_argument("--archive-root", default=str(DEFAULT_ARCHIVE))
+    archive_prepare_parser.add_argument("--output", required=True)
+    archive_prepare_parser.add_argument("--path", action="append", required=True)
+
     prune_parser = sub.add_parser("prune")
     prune_parser.add_argument("--inbox", default=str(DEFAULT_INBOX))
     prune_parser.add_argument("--manifest", required=True)
     prune_parser.add_argument("--confirm", required=True)
+
+    archive_parser = sub.add_parser(
+        "archive",
+        help="archive an exact approved manifest after hash-checked preflight",
+    )
+    archive_parser.add_argument("--inbox", default=str(DEFAULT_INBOX))
+    archive_parser.add_argument("--archive-root", default=str(DEFAULT_ARCHIVE))
+    archive_parser.add_argument("--manifest", required=True)
+    archive_parser.add_argument("--confirm", required=True)
     return parser
 
 
@@ -461,8 +691,12 @@ def main(argv: list[str] | None = None) -> int:
         result = record_decision(args)
     elif args.command == "prepare-prune":
         result = prepare_prune(args)
+    elif args.command == "prepare-archive":
+        result = prepare_archive(args)
     elif args.command == "prune":
         result = prune(args)
+    elif args.command == "archive":
+        result = archive(args)
     else:
         raise ValueError(f"unknown command: {args.command}")
     print(json.dumps(result, indent=2, sort_keys=True))
