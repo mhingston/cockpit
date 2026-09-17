@@ -12,7 +12,7 @@ agent event
   -> optional detached local text index with redaction
   -> session-start status notice
   -> marked review proposal in a local outbox
-  -> manual decision and separately approved pruning
+  -> manual decision and separately approved archival
 ```
 
 The implementation supports Codex- and Claude-shaped JSONL records, but the
@@ -28,10 +28,10 @@ paths and names are configurable.
   credentials are excluded.
 - `learning_review.py`: captures a final assistant report only when it ends in
   the configured marker, records it as pending approval, and provides explicit
-  decision and hash-checked exact-path prune commands.
+  decision plus hash-checked exact-path archive and prune commands.
 - `../skills/learning-review-approval/SKILL.md`: an optional, generic
   human-gated second stage for evidence review, durable decisions, and
-  separately approved pruning.
+  separately approved archival.
 - `session_start_orientation.py`: injects read-only Git branch and status
   context.
 - `optional/dotnet_nodereuse_guard.py`: an optional example of a narrow
@@ -57,6 +57,7 @@ existing pattern. Override them for another host:
 AGENT_HOOK_INBOX
 AGENT_HOOK_OUTBOX
 AGENT_HOOK_CAPTURE_OUTBOX
+AGENT_HOOK_ARCHIVE
 AGENT_HOOK_HARNESS
 AGENT_HOOK_EVENT
 AGENT_SESSION_MEMORY_DB
@@ -83,5 +84,7 @@ Test the scripts with temporary paths before enabling them. Confirm that:
 - indexing redacts credential-shaped values and ignores tool records;
 - read-only index commands do not create or modify the database;
 - capture is marker-gated and idempotent;
+- archive requires exact paths, original hashes, a confirmation digest, and
+  complete preflight before moving any record;
 - prune requires exact paths, original hashes, and a confirmation digest; and
 - hook subprocesses finish within their configured timeout.

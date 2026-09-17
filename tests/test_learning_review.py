@@ -225,6 +225,116 @@ class LearningReviewTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "non-inbox"):
                 MODULE.prepare_prune(args)
 
+    def test_archive_manifest_moves_exact_files_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inbox = root / "inbox"
+            outbox = root / "outbox"
+            archive = root / "archive"
+            inbox.mkdir()
+            first = inbox / "one.json"
+            second = inbox / "two.json"
+            first.write_text('{"status":"pending_review","id":1}\n')
+            second.write_text('{"status":"pending_review","id":2}\n')
+            manifest_path = outbox / "archive.json"
+
+            prepare_args = type(
+                "Args",
+                (),
+                {
+                    "inbox": str(inbox),
+                    "archive_root": str(archive),
+                    "output": str(manifest_path),
+                    "path": [str(first), str(second)],
+                },
+            )
+            prepared = MODULE.prepare_archive(prepare_args)
+            self.assertEqual(prepared["path_count"], 2)
+            self.assertTrue(first.exists())
+            self.assertTrue(second.exists())
+
+            archive_args = type(
+                "Args",
+                (),
+                {
+                    "inbox": str(inbox),
+                    "archive_root": str(archive),
+                    "manifest": str(manifest_path),
+                    "confirm": prepared["confirm_digest"],
+                },
+            )
+            archived = MODULE.archive(archive_args)
+            self.assertEqual(archived["status"], "archived")
+            self.assertEqual(len(archived["archived"]), 2)
+            self.assertFalse(first.exists())
+            self.assertFalse(second.exists())
+            for destination in archived["archived"]:
+                self.assertTrue(Path(destination).is_file())
+
+            retried = MODULE.archive(archive_args)
+            self.assertEqual(retried["status"], "archived")
+            self.assertEqual(len(retried["already_archived"]), 2)
+
+    def test_archive_preflight_hash_mismatch_does_not_move_any_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inbox = root / "inbox"
+            outbox = root / "outbox"
+            archive = root / "archive"
+            inbox.mkdir()
+            first = inbox / "one.json"
+            second = inbox / "two.json"
+            first.write_text('{"status":"pending_review","id":1}\n')
+            second.write_text('{"status":"pending_review","id":2}\n')
+            manifest_path = outbox / "archive.json"
+            prepare_args = type(
+                "Args",
+                (),
+                {
+                    "inbox": str(inbox),
+                    "archive_root": str(archive),
+                    "output": str(manifest_path),
+                    "path": [str(first), str(second)],
+                },
+            )
+            prepared = MODULE.prepare_archive(prepare_args)
+            first.write_text('{"status":"changed"}\n')
+            archive_args = type(
+                "Args",
+                (),
+                {
+                    "inbox": str(inbox),
+                    "archive_root": str(archive),
+                    "manifest": str(manifest_path),
+                    "confirm": prepared["confirm_digest"],
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "hash mismatch"):
+                MODULE.archive(archive_args)
+            self.assertTrue(first.exists())
+            self.assertTrue(second.exists())
+            self.assertFalse(archive.exists())
+
+    def test_archive_rejects_archive_root_inside_inbox(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inbox = root / "inbox"
+            inbox.mkdir()
+            source = inbox / "one.json"
+            source.write_text('{"status":"pending_review"}\n')
+            args = type(
+                "Args",
+                (),
+                {
+                    "inbox": str(inbox),
+                    "archive_root": str(inbox / "archive"),
+                    "output": str(root / "archive.json"),
+                    "path": [str(source)],
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "inside the inbox"):
+                MODULE.prepare_archive(args)
+
 
 if __name__ == "__main__":
     unittest.main()
