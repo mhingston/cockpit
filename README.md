@@ -24,6 +24,8 @@ machine state.
   materialisation boundaries.
 - [`docs/hooks.md`](docs/hooks.md): lifecycle capture, local evidence indexing,
   review proposals, and configuration guidance.
+- [`skills/learning-review-approval/`](skills/learning-review-approval/):
+  generic human-gated review of lifecycle-learning proposals.
 - [`hooks/`](hooks/): portable, opt-in Python hook implementations.
 - [`examples/`](examples/): minimal Codex and Claude configuration fragments.
 - [`tests/`](tests/): isolated tests using temporary directories only.
@@ -66,6 +68,9 @@ host agent configuration.
    Claude configuration; preserve unrelated entries.
 5. Keep inboxes, outboxes, transcripts, SQLite databases, caches, credentials,
    and generated files outside the repository.
+6. If lifecycle-learning review is in scope, expose
+   `skills/learning-review-approval/` to the host skill directory and configure
+   the review adapter and durable destinations for that host.
 
 The repository is a starting point, not an installer. Host configuration
 changes should be reviewed and tested separately from changes to this template.

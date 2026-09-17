@@ -29,6 +29,9 @@ paths and names are configurable.
 - `learning_review.py`: captures a final assistant report only when it ends in
   the configured marker, records it as pending approval, and provides explicit
   decision and hash-checked exact-path prune commands.
+- `../skills/learning-review-approval/SKILL.md`: an optional, generic
+  human-gated second stage for evidence review, durable decisions, and
+  separately approved pruning.
 - `session_start_orientation.py`: injects read-only Git branch and status
   context.
 - `optional/dotnet_nodereuse_guard.py`: an optional example of a narrow
@@ -65,6 +68,11 @@ AGENT_LEARNING_MARKER
 Copy the scripts to a user-local hooks directory, make entrypoints executable,
 and adapt the configuration fragments in `examples/`. Merge them with the
 existing host configuration instead of replacing it.
+
+If lifecycle-learning review is enabled, also expose the bundled approval skill
+to the host skill directory and configure the review adapter and durable
+destinations. The skill is portable, but its paths, knowledge-base integration,
+and destination policy remain host-specific.
 
 ## Verification
 

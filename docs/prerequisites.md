@@ -40,7 +40,12 @@ host rather than committing credentials or machine-specific paths here.
 | Structural feedback and regression gating | You want architecture scans or before/after structural checks | Sentrux MCP server backed by the `sentrux` binary | `sentrux --version`; verify the client sees `scan` and related tools |
 | Approved skill discovery | You want the Skillet-first routing policy to execute | An approved Skillet MCP server exposing skill search and selection | Verify the server connection, then run a read-only skill search |
 | Durable knowledge base | You want agents to search or update OpenKnowledge | OpenKnowledge MCP/CLI integration | Verify a read-only search/read operation |
-| Lifecycle capture and local evidence review | You want session-start, compaction, session-end, and review hooks | Copy the selected hooks and merge the configuration fragments | Run the isolated tests and a temporary-directory smoke test |
+| Lifecycle capture and local evidence review | You want session-start, compaction, session-end, and human-gated review | Copy the selected hooks, expose `skills/learning-review-approval/` to the host skill directory, and merge the configuration fragments | Run the isolated tests and a temporary-directory smoke test |
+
+The bundled approval skill is an optional, organisation-neutral second stage. It
+reviews pending proposals but does not automatically promote durable knowledge,
+change host configuration, or delete lifecycle records. Configure the outbox,
+inbox, review adapter, and durable destinations for each host.
 
 ### Project links
 
