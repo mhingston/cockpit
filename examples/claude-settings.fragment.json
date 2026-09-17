@@ -1,0 +1,47 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_HOOK_HARNESS=claude AGENT_HOOK_EVENT=SessionStart python3 \"$HOME/.agent-hooks/agent_governance.py\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.agent-hooks/session_start_orientation.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_HOOK_HARNESS=claude AGENT_HOOK_EVENT=PreCompact python3 \"$HOME/.agent-hooks/agent_governance.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_HOOK_HARNESS=claude AGENT_HOOK_EVENT=SessionEnd python3 \"$HOME/.agent-hooks/agent_governance.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

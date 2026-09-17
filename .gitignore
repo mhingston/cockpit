@@ -1,0 +1,28 @@
+# Host and generated state
+.DS_Store
+__pycache__/
+*.py[cod]
+.coverage
+.venv/
+venv/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Hook runtime state; never commit transcripts or derived indexes
+inbox/
+outbox/
+session-memory/
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.jsonl
+
+# Local tool indexes
+.repowise/
+.sentrux/
